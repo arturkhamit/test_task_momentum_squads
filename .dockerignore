@@ -16,3 +16,5 @@ deploy
 Dockerfile
 compose*.yaml
 *.md
+backups
+.last_good_tag

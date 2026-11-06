@@ -1,0 +1,51 @@
+# Production override on top of compose.yaml:
+#   COMPOSE_FILE=compose.yaml:deploy/compose.prod.yaml TAG=... docker compose ...   (deploy.sh does this)
+# - images are the ones deploy.sh built for $TAG from the checkout (never pulled), so a rollback is
+#   "start the previous tag";
+# - api and mock-helpdesk listen on 127.0.0.1 only (the shared Caddy in the host network proxies to
+#   them); the database is not published at all;
+# - no unsafe defaults: the secrets and the public URL must be in .env, or compose refuses to start.
+# Everything else (log rotation, restart policies, healthchecks, the other settings with their
+# defaults, HELPDESK_MOCK_URL -> the mock) comes from compose.yaml.
+
+x-prod-env: &prod-env
+  # Hex password (openssl rand -hex 32): it goes into a URL unescaped.
+  DATABASE_URL: postgresql+asyncpg://app:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/app
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL in .env (the public address, baked into draft links)}
+  OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:?set OPERATOR_PASSWORD in .env}
+  # Optional: empty = no-key mode (static drafts after 5-30 s); a key + redeploy = real Claude drafts.
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+services:
+  db:
+    environment:
+      # Applied only when the volume is created; changing it later needs ALTER USER too.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports: !reset []
+
+  migrate:
+    image: momentum-squads:${TAG:?set TAG}
+    pull_policy: never
+    environment: *prod-env
+
+  api:
+    image: momentum-squads:${TAG:?set TAG}
+    pull_policy: never
+    environment: *prod-env
+    # Loopback only: uvicorn trusts X-Forwarded-For (--proxy-headers) for the webhook rate limit
+    # and the logs, so nothing but the Caddy on this host may reach this port.
+    ports: !override
+      - "127.0.0.1:18030:8000"
+
+  worker:
+    image: momentum-squads:${TAG:?set TAG}
+    pull_policy: never
+    environment: *prod-env
+    scale: 1  # the LLM limiter is in this process's memory: never more than one
+
+  mock-helpdesk:
+    image: momentum-squads:${TAG:?set TAG}
+    pull_policy: never
+    env_file: !reset []  # it needs none of the secrets in .env
+    ports: !override
+      - "127.0.0.1:18031:8001"
