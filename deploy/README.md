@@ -8,6 +8,9 @@ export DEPLOY_HOST=<ssh-user>@<server-ip>      # on the laptop
 export SERVER_IP=<server-ip> DEPLOY_DIR=<deploy-dir>   # on the server, e.g. DEPLOY_DIR=~/apps/momentum_squads
 ```
 
+A rehearsal on the laptop cannot use `SERVER_IP=127.0.0.1`: preflight refuses a localhost `PUBLIC_BASE_URL` by
+design. Use another loopback address, e.g. `SERVER_IP=127.0.0.2`.
+
 How it runs: the server has a git checkout; `deploy/deploy.sh` builds the image there (no registry), tags it
 `<date-time>-<git sha>` and starts `db`, `migrate` (one-shot), `api`, `worker` (exactly one), `mock-helpdesk`
 with `compose.yaml` + `deploy/compose.prod.yaml`. Only two ports listen, both on loopback: `api` on
