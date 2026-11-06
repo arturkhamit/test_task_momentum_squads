@@ -54,7 +54,7 @@ No Redis, no Celery: Postgres is the queue.
 
 ### 3.2 Flows and key decisions
 
-**Intake (R1–R3).** Validate the body with pydantic (422 on bad input) and run one statement: `INSERT … ON CONFLICT (event_id) DO NOTHING`. Answer `200 {"status":"accepted"}` for new and duplicate events alike, and only after commit, so an acknowledged ticket is always durable. The request does no LLM work. The unique index handles concurrent duplicates, with no app-level locks.
+**Intake (R1–R3).** Validate the body with pydantic (422 on bad input) and run one statement: `INSERT … ON CONFLICT (event_id) DO NOTHING`. Answer `200 {"status":"accepted"}` for new and duplicate events alike, and only after commit, so an acknowledged ticket is always durable. The request does no LLM work. The unique index handles concurrent duplicates, with no app-level locks. If the DB is down or slow, the webhook answers `503` with `Retry-After` within ~1.5 s instead of hanging. A per-client-IP token bucket (600/min, burst 200, in the api process) answers `429` to floods; it sits far above the task's peak of 50/min, so legitimate helpdesk retries are never refused.
 
 **Job pickup (R3, crash safety).** The worker claims rows with `SELECT … WHERE status=… AND next_attempt_at<=now() AND (locked_until IS NULL OR locked_until<now()) FOR UPDATE SKIP LOCKED LIMIT n`, then sets a lease (`locked_until = now()+lease`). A worker killed mid-job leaves an expired lease, and the row is picked up again.
 
@@ -62,7 +62,7 @@ No Redis, no Celery: Postgres is the queue.
 - The worker is one asyncio process. Concurrency comes from a semaphore (~20) and a global token-bucket limiter at 60 requests/min. Every provider request goes through the limiter, including the no-key one and retries.
 - Peak load is 50 tickets/min at ~17 s average latency, which needs ~15 in flight.
 - Constraint: exactly one worker replica, because the limiter is in-process. This is documented. Moving the limiter into Postgres is the upgrade path.
-- Provider: Anthropic Claude, model `claude-haiku-5-5`, official `anthropic` SDK, client timeout 60 s, SDK retries off (our retries go through the limiter). On 429/5xx/timeout: exponential backoff, at most 5 attempts, then `generation_failed`.
+- Provider: Anthropic Claude, model `claude-haiku-5-5`, official `anthropic` SDK, client timeout 60 s, SDK retries off (our retries go through the limiter). On 429/5xx/timeout: exponential backoff (10 s doubling, cap 600 s), at most 8 attempts (a ~20 min window, enough to ride out a short provider outage), then `generation_failed`. An attempt cancelled by a graceful shutdown is given back.
 - No-key mode: when `ANTHROPIC_API_KEY` is empty, still send the real request with a dummy key and expect 401. Then sleep `uniform(5, 30)` and return a static draft template filled with the retrieved article links. From that point the flow is identical.
 - Prompt: answer in the customer's language, only from the given articles, cite them as links, and say so shortly and plainly if no article fits. The output is plain text.
 
@@ -76,7 +76,7 @@ No Redis, no Celery: Postgres is the queue.
 
 **Sending (R7, R8).**
 - The sending loop claims `approved` tickets with the same lease pattern and POSTs `{"ticket_id", "message"}` to `reply_url` with the header `Idempotency-Key: <tickets.id>` and a 10 s timeout.
-- 201/200 → `sent`. 5xx, timeout or connection error → retry with backoff (up to ~10 attempts over ~30 min), then `send_failed`. Other 4xx → `send_failed` immediately.
+- 201/200 → `sent`. 5xx, timeout or connection error → retry with backoff (up to 10 attempts over ~20 min), then `send_failed`. Other 4xx → `send_failed` immediately.
 - **Assumption, stated in the README:** after a timeout we cannot know whether the helpdesk stored the reply. Exactly-once delivery is only possible if the helpdesk deduplicates by an idempotency key. Our mock does; a real helpdesk must too.
 - `reply_url` comes from outside (SSRF risk), so its host must be in `HELPDESK_ALLOWED_HOSTS`.
 - When `HELPDESK_MOCK_URL` is set, the scheme and host of `reply_url` are replaced with the mock (the path is kept). The task's example payload with `helpdesk.example.com` then works end to end.
@@ -144,3 +144,10 @@ Webhook signature (not in the task; noted in the README), embeddings/pgvector, m
 4. **Exactly-once:** the `Idempotency-Key` approach and its documented assumption are accepted.
 5. **Repository:** GitHub repo `arturkhamit/test_task_momentum_squads` already exists. Agents commit to `feat/support-drafts`; the owner merges to `main` (no squash) and pushes.
 6. **Agents** run at effort `high`.
+
+After QA and the audit (same day):
+
+7. **Generation attempts** go from 5 to 8 (see Generation above).
+8. **Live LLM check:** before going public, the example ticket runs once end to end with the owner's real key.
+9. **Mock helpdesk in production:** for now, replies go to the mock, and its page is public at `helpdesk.<domain>` behind the same Basic Auth.
+10. **Webhook protection:** no auth (the reviewers need an open link). Instead there is a per-IP rate limit of 600/min with a burst of 200; the LLM limiter already caps cost.
