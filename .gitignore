@@ -9,3 +9,4 @@ htmlcov/
 .claude/settings.local.json
 backups/
 .last_good_tag
+.previous_tag

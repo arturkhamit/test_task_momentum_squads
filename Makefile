@@ -25,7 +25,7 @@ smoke:     ## make smoke BASE_URL=http://<server-ip>:8030
 # On the server only.
 deploy:
 	bash deploy/deploy.sh
-rollback:  ## make rollback [tag=...]
+rollback:  ## to .previous_tag, or make rollback tag=...
 	bash deploy/rollback.sh $(tag)
 backup:
 	bash deploy/backup.sh

@@ -58,7 +58,8 @@ Steps marked **[sudo]** need root; everything else is a plain user command (in t
    ```
    Preflight (`.env` present, mode 600, no `change-me`, the required variables set, passwords long enough,
    `PUBLIC_BASE_URL` not localhost, 3+ GB free) -> build -> migrate + KB seed -> start, waiting up to 120 s for
-   the healthchecks -> smoke of `/health`, `/ready` and the mock on the loopback ports -> `.last_good_tag`.
+   the healthchecks -> smoke of `/health`, `/ready` and the mock on the loopback ports -> `.last_good_tag` (the
+   running release; the one it replaced goes to `.previous_tag`). The last lines print both.
    Until the next step the service answers on the server's loopback only.
 5. **[sudo] Shared Caddy:** section below.
 6. **[sudo] Firewall** for the temporary ports, if the server has one:
@@ -130,19 +131,23 @@ cd "$DEPLOY_DIR" && git pull --ff-only && bash deploy/deploy.sh        # or: mak
 ```
 
 Before migrating it dumps the database to `backups/` (when it has tables). A failure after the build rolls back
-to the previous `.last_good_tag` by itself; the first deploy has nothing to roll back to (`make prod-logs`).
+to the release that was running (`.last_good_tag`) by itself; the first deploy has nothing to roll back to (`make prod-logs`).
 The mock helpdesk keeps its replies in memory: every deploy empties its page (the tickets in Postgres stay).
 
 ## Rollback
 
 ```
-bash deploy/rollback.sh                          # to .last_good_tag;  or: make rollback
+bash deploy/rollback.sh                          # to the release before the current one (.previous_tag); or: make rollback
 bash deploy/rollback.sh 20261106-120000-abc1234  # to a given tag (docker image ls momentum-squads lists them)
 ```
 
+`.last_good_tag` is the running release, `.previous_tag` the one before it. A rollback swaps them, so running
+`deploy/rollback.sh` again returns to the release you rolled back from. Without `.previous_tag` (only one
+release so far) it stops with a message and changes nothing.
+
 Only containers go back, and `migrate` is not run (the old alembic would not know the new revision). Migrations
 are not undone: if the new version changed the schema and the old code cannot read it, restore the dump taken
-just before the deploy, then roll back:
+just before the deploy (while the new release still runs), then roll back:
 
 ```
 export COMPOSE_FILE=compose.yaml:deploy/compose.prod.yaml TAG=$(cat .last_good_tag)

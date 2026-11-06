@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploy on the server, from <deploy-dir> (after git pull):   deploy/deploy.sh
 # preflight -> TAG=date-time-sha -> build -> backup -> migrate -> up --wait -> smoke -> .last_good_tag
+# (the tag it replaces goes to .previous_tag, the default target of deploy/rollback.sh)
 # A failure after the stack was touched rolls back to the previous .last_good_tag.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -85,7 +86,9 @@ docker compose up -d --wait --wait-timeout 120 --no-deps --remove-orphans db api
 stage=smoke
 deploy/smoke.sh
 
-# ---- 8. done ----------------------------------------------------------------------------------
+# ---- 8. done: the release we came from becomes the target of a plain `deploy/rollback.sh` ------
+[ -z "$previous" ] || echo "$previous" > .previous_tag
 echo "$TAG" > .last_good_tag
 echo "== deploy ok: $TAG"
+echo "previous release: ${previous:-none}"
 docker compose ps
