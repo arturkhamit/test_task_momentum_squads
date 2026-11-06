@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     log_level: str = "INFO"
 
+    # Operator UI (HTTP Basic Auth). Change both in production.
+    operator_user: str = "admin"
+    operator_password: str = "admin"
+
     # LLM. An empty key means no-key mode: real request, expected 401, static draft.
     anthropic_api_key: str = ""
     llm_model: str = "claude-haiku-5-5"

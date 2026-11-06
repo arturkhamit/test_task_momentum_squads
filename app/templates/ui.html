@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Support drafts</title>
+<style>
+  body { font: 15px/1.45 system-ui, sans-serif; max-width: 960px; margin: 1.5rem auto; padding: 0 1rem; color: #222; }
+  nav a { margin-right: .6rem; }
+  nav a.current { font-weight: bold; text-decoration: none; color: #222; }
+  .notice { background: #fff6d6; border: 1px solid #e5c95c; padding: .5rem .8rem; }
+  .ticket { border: 1px solid #ccc; border-radius: 6px; padding: .8rem 1rem; margin: 1rem 0; }
+  .meta { color: #555; font-size: 13px; }
+  .status { font-weight: bold; padding: 0 .4rem; border-radius: 4px; background: #eee; }
+  .status.draft { background: #dbeafe; } .status.sent { background: #dcfce7; }
+  .status.generation_failed, .status.send_failed { background: #fee2e2; }
+  .message, .final { white-space: pre-wrap; background: #f7f7f7; padding: .5rem; margin: .4rem 0; }
+  textarea { width: 100%; box-sizing: border-box; font: inherit; }
+  .error { color: #b91c1c; }
+  button { margin-right: .4rem; }
+</style>
+</head>
+<body>
+<h1>Support drafts</h1>
+<nav>
+  <a href="/ui" class="{{ 'current' if not status }}">all</a>
+  {% for s in statuses %}<a href="/ui?status={{ s }}" class="{{ 'current' if s == status }}">{{ s }}</a>{% endfor %}
+  | <a href="/ui{{ '?status=' ~ status if status }}">Refresh</a>
+</nav>
+{% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+
+{% for t in tickets %}
+<div class="ticket">
+  <div>
+    <strong>{{ t.ticket_id }}</strong> &middot; {{ t.customer_email }}
+    &middot; <span class="status {{ t.status }}">{{ t.status }}</span>
+  </div>
+  <div class="meta">created {{ t.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') }} &middot; attempts {{ t.attempts }}</div>
+  <div class="message">{{ t.message }}</div>
+
+  {% if t.status == 'draft' %}
+  <form method="post" action="/ui/tickets/{{ t.id }}/approve">
+    <input type="hidden" name="filter" value="{{ status }}">
+    <textarea name="final_message" rows="8" maxlength="10000">{{ t.draft }}</textarea>
+    <button type="submit">Approve and send</button>
+    <button type="submit" formaction="/ui/tickets/{{ t.id }}/reject" formnovalidate>Reject</button>
+  </form>
+  {% endif %}
+
+  {% if t.citations %}
+  <div class="meta">Articles:
+    {% for c in t.citations %}<a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a>{{ ', ' if not loop.last }}{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if t.final_message and t.status != 'draft' %}
+  <div class="final">{{ t.final_message }}</div>
+  {% endif %}
+  {% if t.sent_at %}<div class="meta">sent {{ t.sent_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</div>{% endif %}
+
+  {% if t.last_error %}<div class="error">Last error: {{ t.last_error }}</div>{% endif %}
+  {% if t.status in ('generation_failed', 'send_failed') %}
+  <form method="post" action="/ui/tickets/{{ t.id }}/retry">
+    <input type="hidden" name="filter" value="{{ status }}">
+    <button type="submit">Retry</button>
+  </form>
+  {% endif %}
+</div>
+{% else %}
+<p>No tickets.</p>
+{% endfor %}
+
+{% if older_query %}<p><a href="/ui?{{ older_query }}">Older &rarr;</a></p>{% endif %}
+</body>
+</html>
