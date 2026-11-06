@@ -139,7 +139,7 @@ Webhook signature (not in the task; noted in the README), embeddings/pgvector, m
 ## 7. Owner decisions (2026-11-06)
 
 1. **Domain:** the owner will buy one; it does not exist yet. Deploy files take it as a parameter (`DOMAIN`), so nothing is hard-coded. Public HTTPS through the shared Caddy on the owner's server.
-2. **LLM key:** production uses a real `ANTHROPIC_API_KEY` from the server `.env`. Locally the default is no-key mode.
+2. **LLM key:** production was planned to use a real `ANTHROPIC_API_KEY` from the server `.env`; see decision 8 for the update. Locally the default is no-key mode.
 3. **Language:** everything about the project is in English: code, comments, docs, commit messages. KB articles stay in Ukrainian (see KB above).
 4. **Exactly-once:** the `Idempotency-Key` approach and its documented assumption are accepted.
 5. **Repository:** GitHub repo `arturkhamit/test_task_momentum_squads` already exists. Agents commit to `feat/support-drafts`; the owner merges to `main` (no squash) and pushes.
@@ -148,6 +148,6 @@ Webhook signature (not in the task; noted in the README), embeddings/pgvector, m
 After QA and the audit (same day):
 
 7. **Generation attempts** go from 5 to 8 (see Generation above).
-8. **Live LLM check:** before going public, the example ticket runs once end to end with the owner's real key.
+8. **Live LLM check:** deferred, because there is no funded Anthropic account yet. Production runs in no-key mode, which the task requires to work anyway. The real-key path is unit-tested against the official SDK with a stubbed transport. Setting `ANTHROPIC_API_KEY` and redeploying switches to real drafts.
 9. **Mock helpdesk in production:** for now, replies go to the mock, and its page is public at `helpdesk.<domain>` behind the same Basic Auth.
 10. **Webhook protection:** no auth (the reviewers need an open link). Instead there is a per-IP rate limit of 600/min with a burst of 200; the LLM limiter already caps cost.
