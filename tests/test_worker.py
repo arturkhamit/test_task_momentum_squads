@@ -73,6 +73,21 @@ async def test_live_lease_and_future_retry_are_not_claimed():
     assert await claim_for_generation() is None
 
 
+async def test_stale_worker_is_fenced_after_reclaim():
+    """A worker whose lease expired and whose ticket was reclaimed cannot overwrite it."""
+    ticket_id = await add_ticket(status="approved", final_message="Відповідь")
+    stale = await worker.claim("approved", "sending", settings.send_lease_seconds)
+    async with SessionLocal() as s, s.begin():
+        await s.execute(update(Ticket).where(Ticket.id == ticket_id).values(locked_until=ago(1)))
+    fresh = await worker.claim("approved", "sending", settings.send_lease_seconds)
+    assert fresh["id"] == ticket_id and fresh["attempts"] == 2
+
+    await worker.finish(stale, "sending", status="sent")
+
+    t = await get_ticket(ticket_id)
+    assert t.status == "sending" and t.attempts == 2 and t.sent_at is None
+
+
 # --- generation --------------------------------------------------------------------------
 
 
