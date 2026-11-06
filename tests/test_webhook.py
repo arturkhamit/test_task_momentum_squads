@@ -1,9 +1,13 @@
 import asyncio
+import time
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.db import SessionLocal
+from app.config import settings
+from app.db import SessionLocal, get_session
+from app.main import app
 from app.models import Ticket
 
 PAYLOAD = {
@@ -78,3 +82,46 @@ async def test_duplicate_event_concurrent_creates_one_row(client):
     assert [r.status_code for r in responses] == [200] * 20
     assert all(r.json() == {"status": "accepted"} for r in responses)
     assert await count_tickets() == 1
+
+
+async def test_dead_db_answers_503_fast(client):
+    # Nothing listens on port 1, so the connection is refused immediately.
+    bad = create_async_engine("postgresql+asyncpg://app:app@127.0.0.1:1/app")
+
+    async def dead_session():
+        async with async_sessionmaker(bad)() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = dead_session
+    try:
+        started = time.monotonic()
+        r = await client.post("/webhooks/helpdesk", json=PAYLOAD)
+    finally:
+        app.dependency_overrides.clear()
+        await bad.dispose()
+    assert r.status_code == 503
+    assert r.headers["retry-after"] == "5"
+    assert r.json() == {"detail": "Database unavailable, retry later"}
+    assert time.monotonic() - started < 1
+
+
+async def test_hung_db_answers_503_within_timeout(client, monkeypatch, caplog):
+    monkeypatch.setattr(settings, "webhook_db_timeout", 0.05)
+
+    class HungSession:
+        async def execute(self, *args, **kwargs):
+            await asyncio.sleep(3600)
+
+    async def hung_session():
+        yield HungSession()
+
+    app.dependency_overrides[get_session] = hung_session
+    try:
+        started = time.monotonic()
+        r = await client.post("/webhooks/helpdesk", json=PAYLOAD)
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 503 and r.headers["retry-after"] == "5"
+    assert time.monotonic() - started < 0.5
+    [line] = [x for x in caplog.records if getattr(x, "event", "") == "webhook_db_error"]
+    assert line.error == "TimeoutError" and line.exc_info is None
