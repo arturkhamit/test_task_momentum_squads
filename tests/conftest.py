@@ -22,6 +22,7 @@ from app.config import settings  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.seed_kb import seed  # noqa: E402
+from mock_helpdesk import main as mock  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -135,3 +136,22 @@ def message_response(text="Відповідь", stop_reason="end_turn"):
 def error_response(status, error_type="api_error", headers=None):
     body = {"type": "error", "error": {"type": error_type, "message": f"stub {status}"}}
     return httpx2.Response(status, json=body, headers=headers)
+
+
+@pytest.fixture
+def mock_helpdesk(monkeypatch):
+    """The mock helpdesk module with an empty store and no random failures or slowness."""
+    mock.records.clear()
+    mock.by_key.clear()
+    mock.attempts.clear()
+    monkeypatch.setattr(mock.settings, "fail_rate", 0.0)
+    monkeypatch.setattr(mock.settings, "slow_rate", 0.0)
+    monkeypatch.setattr(mock.settings, "slow_seconds", 1.0)
+    return mock
+
+
+@pytest.fixture
+async def mock_client(mock_helpdesk):
+    transport = ASGITransport(app=mock_helpdesk.app)
+    async with AsyncClient(transport=transport, base_url="http://mock") as c:
+        yield c
