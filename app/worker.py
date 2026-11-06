@@ -183,15 +183,27 @@ async def send_once() -> bool:
     return job is not None
 
 
+async def pause(stop: asyncio.Event, seconds: float) -> None:
+    """Sleep, but wake up at once when stop is set."""
+    with suppress(TimeoutError):
+        await asyncio.wait_for(stop.wait(), seconds)
+
+
 async def pool_loop(once, stop: asyncio.Event) -> None:
+    errors = 0  # consecutive failed iterations, e.g. while the DB is down
     while not stop.is_set():
         try:
-            if await once():
-                continue
+            busy = await once()
+            errors = 0
         except Exception:
-            log.exception("worker loop error", extra={"event": "worker_error"})
-        with suppress(TimeoutError):
-            await asyncio.wait_for(stop.wait(), settings.poll_interval)
+            errors += 1
+            busy = False
+            log.exception(
+                "worker loop error", extra={"event": "worker_error", "consecutive": errors}
+            )
+        if not busy:
+            # Back off 1, 2, 4 ... 30 s after errors so an outage does not flood the log.
+            await pause(stop, min(2 ** (errors - 1), 30) if errors else settings.poll_interval)
 
 
 async def main() -> None:

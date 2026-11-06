@@ -193,3 +193,37 @@ async def test_pool_loop_stops_promptly():
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
+
+
+async def test_pool_loop_backs_off_after_errors_and_resets(monkeypatch):
+    stop = asyncio.Event()
+    outcomes = iter([RuntimeError] * 7 + [True, RuntimeError, False])
+    pauses = []
+
+    async def once():
+        outcome = next(outcomes)
+        if outcome is RuntimeError:
+            raise RuntimeError("db down")
+        return outcome
+
+    async def record_pause(_stop, seconds):
+        pauses.append(seconds)
+        if len(pauses) == 9:
+            stop.set()
+
+    monkeypatch.setattr(worker, "pause", record_pause)
+    await worker.pool_loop(once, stop)
+    assert pauses == [1, 2, 4, 8, 16, 30, 30, 1, settings.poll_interval]
+
+
+async def test_pool_loop_wakes_from_error_backoff_on_stop():
+    stop = asyncio.Event()
+
+    async def failing():
+        raise RuntimeError("db down")
+
+    task = asyncio.create_task(worker.pool_loop(failing, stop))
+    for _ in range(3):
+        await asyncio.sleep(0)  # let it fail and enter its 1 s backoff
+    stop.set()
+    await asyncio.wait_for(task, timeout=0.5)
