@@ -48,6 +48,10 @@ async def post_reply(url: str, idempotency_key: str, ticket_id: str, message: st
         raise SendError(f"timeout: {type(e).__name__}", retryable=True) from e
     except httpx.TransportError as e:
         raise SendError(f"connection error: {e!r}", retryable=True) from e
+    except httpx.HTTPError as e:
+        # Anything else httpx raises (e.g. DecodingError on a broken body): the reply may or
+        # may not be stored, so retry; the Idempotency-Key makes that safe.
+        raise SendError(f"request failed: {e!r}", retryable=True) from e
     if response.is_success:
         return
     status = response.status_code

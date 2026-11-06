@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import func, insert, update
 
@@ -167,6 +168,20 @@ async def test_connection_error_is_retried(monkeypatch):
     await worker.send_once()
     t = await get_ticket(ticket_id)
     assert t.status == "approved" and t.last_error.startswith("connection error")
+
+
+async def test_other_httpx_errors_are_retried(monkeypatch):
+    def broken_body(request):
+        return httpx.Response(201, headers={"content-encoding": "gzip"}, content=b"not gzip")
+
+    monkeypatch.setattr(
+        sender, "http", httpx.AsyncClient(transport=httpx.MockTransport(broken_body))
+    )
+    ticket_id = await add_approved()
+    await worker.send_once()
+    t = await get_ticket(ticket_id)
+    assert t.status == "approved" and t.locked_until is None
+    assert "DecodingError" in t.last_error
 
 
 async def test_expired_sending_lease_is_reclaimed(helpdesk):
