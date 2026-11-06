@@ -23,8 +23,7 @@ COPY kb ./kb
 COPY scripts ./scripts
 COPY mock_helpdesk ./mock_helpdesk
 COPY app ./app
-USER app
+USER 10001
 EXPOSE 8000
 # No HEALTHCHECK here: the same image runs api, worker and mock, so compose defines them.
-CMD ["python", "-c", "import os,urllib.request as u; u.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/health', timeout=2)"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
