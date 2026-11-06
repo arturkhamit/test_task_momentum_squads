@@ -1,34 +1,53 @@
 import pytest
 
 from app.config import settings
-from app.kb import MIN_SCORE, article_url, search
+from app.kb import MIN_RATIO, MIN_TOP_SCORE, article_url, search
 
 
-async def test_example_ticket_finds_pdf_export_first():
+@pytest.mark.parametrize(
+    ("message", "top"),
+    [
+        ("Не можу експортувати звіт у PDF", "export-pdf"),
+        (
+            "Добрий день! Підкажіть, будь ласка, як завантажити місячний звіт у пдф, "
+            "бо кнопка не працює",
+            "export-pdf",
+        ),
+        ("Скільки коштує тариф для команди?", "billing"),
+        ("Як дати колезі доступ до дашборду, щоб він тільки переглядав?", "roles-permissions"),
+        ("Забув пароль і не можу увійти в акаунт", "password-reset"),
+        ("Як вивантажити таблицю в Excel?", "export-excel-csv"),
+        ("Де взяти API токен?", "api-tokens"),
+        ("Не приходить щотижнева розсилка звіту на пошту", "scheduled-reports"),
+        ("Не підключається база даних PostgreSQL, пише тайм-аут", "data-sources"),
+        ("Скасуйте мою підписку", "billing"),
+        ("Яка сьогодні погода?", None),
+        ("Привіт, як справи?", None),
+        ("Хочу замовити піцу з доставкою", None),
+        ("У вас гарний сайт", None),
+        ("Коли буде нова версія?", None),
+        ("Де знаходиться ваш офіс?", None),
+        ("", None),
+    ],
+)
+async def test_search_top_article(message, top):
+    results = await search(message)
+    assert (results[0]["slug"] if results else None) == top
+
+
+async def test_search_result_shape():
     results = await search("Не можу експортувати звіт у PDF")
-    assert results[0]["slug"] == "export-pdf"
     assert results[0]["url"] == article_url("export-pdf")
     assert results[0]["title"] and results[0]["body"]
 
 
-async def test_password_ticket_finds_password_article_first():
-    results = await search("Забув пароль і не можу увійти в акаунт")
-    assert results[0]["slug"] == "password-reset"
-
-
-@pytest.mark.parametrize(
-    "message", ["Яка сьогодні погода?", "Привіт, як справи?", "Хочу замовити піцу з доставкою"]
-)
-async def test_off_topic_finds_nothing(message):
-    assert await search(message) == []
-
-
-async def test_results_are_capped_sorted_and_above_threshold():
-    results = await search("Як додати колегу до звіту?")
+async def test_results_are_capped_sorted_and_close_to_top():
+    results = await search("Як дати колезі доступ до дашборду, щоб він тільки переглядав?")
     scores = [r["score"] for r in results]
     assert 1 <= len(results) <= 3
     assert scores == sorted(scores, reverse=True)
-    assert all(s >= MIN_SCORE for s in scores)
+    assert scores[0] >= MIN_TOP_SCORE
+    assert all(s >= MIN_RATIO * scores[0] for s in scores)
 
 
 async def test_article_page(client):
