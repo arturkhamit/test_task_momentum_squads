@@ -10,14 +10,16 @@ os.environ["DATABASE_URL"] = os.environ.get(
 os.environ["ANTHROPIC_API_KEY"] = ""
 
 import asyncpg  # noqa: E402
+import httpx  # noqa: E402
 import httpx2  # noqa: E402
 import pytest  # noqa: E402
+import uvicorn  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import make_url, text  # noqa: E402
 
-from app import llm  # noqa: E402
+from app import llm, sender  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -155,3 +157,30 @@ async def mock_client(mock_helpdesk):
     transport = ASGITransport(app=mock_helpdesk.app)
     async with AsyncClient(transport=transport, base_url="http://mock") as c:
         yield c
+
+
+@pytest.fixture(scope="session")
+async def mock_server_url():
+    """The mock helpdesk served by a real uvicorn on a free port, so timeouts are real."""
+    config = uvicorn.Config(
+        mock.app, host="127.0.0.1", port=0, log_level="warning", timeout_graceful_shutdown=1
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    while not server.started:  # noqa: ASYNC110 - uvicorn exposes a flag, not an event
+        assert not task.done(), "mock helpdesk failed to start"
+        await asyncio.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    await task
+
+
+@pytest.fixture
+async def helpdesk(mock_helpdesk, mock_server_url, monkeypatch):
+    """Route replies to the running mock with a short client timeout."""
+    monkeypatch.setattr(settings, "helpdesk_mock_url", mock_server_url)
+    client = httpx.AsyncClient(timeout=0.5)
+    monkeypatch.setattr(sender, "http", client)
+    yield mock_helpdesk
+    await client.aclose()

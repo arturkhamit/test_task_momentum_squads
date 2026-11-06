@@ -30,5 +30,15 @@ class Settings(BaseSettings):
     poll_interval: PositiveFloat = 1.0
     shutdown_grace: float = 8.0  # below Docker's default 10 s stop timeout
 
+    # Sending approved replies back to the helpdesk.
+    send_concurrency: PositiveInt = 5
+    send_timeout: PositiveFloat = 10.0
+    send_lease_seconds: PositiveInt = 60  # must exceed send_timeout
+    send_max_attempts: PositiveInt = 10
+    # reply_url comes from outside (SSRF): its host must be one of these (comma-separated).
+    helpdesk_allowed_hosts: str = "helpdesk.example.com"
+    # When set, reply_url's scheme and host are replaced with this (the path is kept).
+    helpdesk_mock_url: str = ""
+
 
 settings = Settings()
