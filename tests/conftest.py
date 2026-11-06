@@ -14,15 +14,16 @@ from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import make_url, text  # noqa: E402
 
-from app.db import engine  # noqa: E402
+from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.seed_kb import seed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="session", autouse=True)
 async def database():
-    """Recreate the test database from scratch and apply migrations once per run."""
+    """Recreate the test database, apply migrations and seed the KB once per run."""
     url = make_url(os.environ["DATABASE_URL"])
     assert url.database.endswith("_test"), "refusing to recreate a non-test database"
     admin_dsn = url.set(drivername="postgresql", database="postgres")
@@ -34,6 +35,8 @@ async def database():
         await conn.close()
     # Alembic's env.py calls asyncio.run(), so it needs its own thread.
     await asyncio.to_thread(command.upgrade, Config(str(ROOT / "alembic.ini")), "head")
+    async with SessionLocal() as session:
+        await seed(session)
     yield
     await engine.dispose()
 
