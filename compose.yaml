@@ -29,8 +29,9 @@ x-app-env: &app-env
   SEND_LEASE_SECONDS: ${SEND_LEASE_SECONDS:-60}
   SEND_MAX_ATTEMPTS: ${SEND_MAX_ATTEMPTS:-10}
   HELPDESK_ALLOWED_HOSTS: ${HELPDESK_ALLOWED_HOSTS:-helpdesk.example.com}
-  # Replies go to the mock helpdesk by default; point this at another URL to override.
-  HELPDESK_MOCK_URL: ${HELPDESK_MOCK_URL:-http://mock-helpdesk:8001}
+  # Replies go to the mock helpdesk by default. Single dash: an explicitly empty value
+  # (HELPDESK_MOCK_URL=) stays empty and sends replies to the real reply_url host.
+  HELPDESK_MOCK_URL: ${HELPDESK_MOCK_URL-http://mock-helpdesk:8001}
 
 x-app: &app
   build: .

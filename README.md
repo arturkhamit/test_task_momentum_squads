@@ -138,7 +138,7 @@ Every variable has a default that works under `docker compose up`. To change one
 | `SEND_LEASE_SECONDS` | `60` | Send lease; must exceed `SEND_TIMEOUT` |
 | `SEND_MAX_ATTEMPTS` | `10` | Send attempts before `send_failed` |
 | `HELPDESK_ALLOWED_HOSTS` | `helpdesk.example.com` | Comma-separated allowlist for the `reply_url` host |
-| `HELPDESK_MOCK_URL` | `http://mock-helpdesk:8001` in compose (empty in the app) | If set, replaces the scheme and host of `reply_url` |
+| `HELPDESK_MOCK_URL` | `http://mock-helpdesk:8001` in compose and `.env.example` (empty in the app) | If set, replaces the scheme and host of `reply_url`. Set it explicitly empty (`HELPDESK_MOCK_URL=`) to send to the real `reply_url` host |
 | `MOCK_FAIL_RATE` | `0.2` | Mock helpdesk: share of requests answered 503 without storing |
 | `MOCK_SLOW_RATE` | `0.1` | Mock helpdesk: share stored, then answered late |
 | `MOCK_SLOW_SECONDS` | `15` | Mock helpdesk: that delay |
@@ -196,7 +196,8 @@ cannot queue two sends.
 `HELPDESK_ALLOWED_HOSTS`; credentials in the URL, non-http(s) schemes and redirects are refused.
 The check runs on the original URL, then, if `HELPDESK_MOCK_URL` is set, the scheme and host are
 replaced by the mock's (the path is kept). That is how the task's `helpdesk.example.com` payload
-works end to end locally. In production, leave `HELPDESK_MOCK_URL` empty.
+works end to end locally. In production, set `HELPDESK_MOCK_URL=` (explicitly empty) so replies
+go to the real helpdesk; leaving it out of `.env` keeps the compose default, the mock.
 
 **Operator UI.** One server-rendered page behind HTTP Basic Auth, tickets newest first with a
 status filter; drafts are editable; failed tickets have a Retry button. State-changing POSTs also
