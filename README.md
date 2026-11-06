@@ -56,7 +56,7 @@ What to expect:
 1. The webhook answers `200 {"status":"accepted"}` at once. Sending the same `event_id` again
    answers the same and creates nothing new.
 2. In no-key mode the worker makes a real request to Anthropic (it fails with 401, on purpose) and
-   waits 5-30 s, then writes a static draft that links the relevant KB articles. In my run the
+   waits 5-30 s, then writes a static draft that links the relevant KB articles. In a test run the
    example ticket became a draft after about 23 s. Reload http://localhost:8000/ui.
 3. Click **Approve** (the text is editable first). The ticket goes `approved` -> `sending` -> `sent`
    within a few seconds.
@@ -108,7 +108,7 @@ Check the result in Postgres:
 docker compose exec db psql -U app -d app -c "select status, count(*) from tickets group by 1"
 ```
 
-In my run, `--n 10 --dup 3` returned 30 x `200` with p99 about 27 ms and created 10 tickets.
+In a test run, `--n 10 --dup 3` returned 30 x `200` with p99 about 27 ms and created 10 tickets.
 Drafts then appear at about the LLM limit (60 per minute), so a big burst drains over time; the
 UI list fills as they finish.
 
@@ -162,7 +162,8 @@ LLM limit of 1 request per second, a table poll is plenty, so Redis and Celery w
 parts without helping.
 
 **LLM rate limit and one worker.** Every provider request, including the no-key one and retries,
-goes through a token bucket of 60 requests per minute. About 20 tickets are in flight at once (5-30
+goes through a limiter that spaces request starts at least 1 s apart, so no 60-second window
+holds more than 60. About 20 tickets are in flight at once (5-30
 s latency at 50 tickets/min needs roughly 15). Retries (429, 5xx, timeout) use exponential backoff
 with jitter, at most 5 attempts, then `generation_failed`; the SDK's own retries are off so nothing
 bypasses the limiter. The limiter is in process memory, so **exactly one worker replica** is
