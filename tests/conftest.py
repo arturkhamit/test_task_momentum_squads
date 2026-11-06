@@ -159,9 +159,12 @@ async def mock_client(mock_helpdesk):
         yield c
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 async def mock_server_url():
-    """The mock helpdesk served by a real uvicorn on a free port, so timeouts are real."""
+    """The mock helpdesk served by a real uvicorn on a free port, so timeouts are real.
+
+    Function-scoped on purpose: uvicorn's main loop ticks with asyncio.sleep(0.1), so a server
+    outliving its tests would hit fake_sleep's patched asyncio.sleep in later tests."""
     config = uvicorn.Config(
         mock.app, host="127.0.0.1", port=0, log_level="warning", timeout_graceful_shutdown=1
     )
