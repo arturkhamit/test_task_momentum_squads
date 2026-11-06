@@ -162,7 +162,7 @@ async def test_retryable_failure_backs_off_then_fails(anthropic_stub, monkeypatc
     t = await get_ticket(ticket_id)
     assert t.status == "new" and t.attempts == 1 and t.locked_until is None
     assert "529" in t.last_error
-    # First retry waits BACKOFF_BASE +-50%.
+    # First retry waits the GEN_BACKOFF base (10 s) +-50%.
     assert ago(-4) < t.next_attempt_at < ago(-16)
 
     for attempt in range(2, settings.gen_max_attempts + 1):

@@ -3,8 +3,8 @@
 A helpdesk sends new tickets to a webhook. A background worker finds relevant knowledge-base (KB)
 articles, asks an LLM (Anthropic Claude `claude-haiku-5-5`) for a draft reply with links to them,
 and an operator approves or rejects drafts in a small web UI. Approved replies are posted back to
-the helpdesk exactly once. It runs with a single `docker compose up`, with no `.env` and no API key
-(a built-in no-key mode stands in for the LLM).
+the helpdesk exactly once (given the helpdesk honours `Idempotency-Key`). It runs with a single
+`docker compose up`, with no `.env` and no API key (a built-in no-key mode stands in for the LLM).
 
 ```
 helpdesk --POST /webhooks/helpdesk--> api --INSERT--> Postgres (tickets = the queue)
@@ -251,6 +251,7 @@ uv run ruff check . && uv run ruff format --check .
 ## Known limitations / out of scope
 
 - One worker replica: the LLM limiter is in process. Scaling out needs a shared limiter.
+- The worker has no healthcheck: a hung loop is not detected (crashes are restarted).
 - The mock helpdesk keeps replies in memory (lost on restart) and must stay a single process.
 - KB search is lexical (trigrams): synonyms without a shared root are missed. No embeddings.
 - The webhook has no signature check (the task defines none). Anyone who can reach the URL can
