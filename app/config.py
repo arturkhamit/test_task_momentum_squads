@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://app:app@db:5432/app"
     public_base_url: str = "http://localhost:8000"
+    log_level: str = "INFO"
 
 
 settings = Settings()

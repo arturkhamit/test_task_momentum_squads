@@ -10,10 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import kb, webhook
 from app.db import engine, get_session
+from app.log import setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    setup_logging()
     yield
     await engine.dispose()
 
