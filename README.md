@@ -248,6 +248,17 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
 
+The `Makefile` wraps the daily commands: `make up`, `make down` (keeps the volume), `make logs`, `make ps`,
+`make test`, `make lint`, `make fire`, `make smoke BASE_URL=...`.
+
+## Deploy
+
+Production runs on one server with Docker Compose behind a shared Caddy: `deploy/compose.prod.yaml` (images
+built on the server, ports on `127.0.0.1` only, required secrets), `deploy/deploy.sh` (backup, migrate, health
+wait, automatic rollback), `deploy/rollback.sh`, `deploy/backup.sh` and the Caddy blocks in
+`deploy/momentum.caddy`. First setup, deploys, rollback, backups, logs and the later switch to a domain:
+[deploy/README.md](deploy/README.md).
+
 ## Known limitations / out of scope
 
 - One worker replica: the LLM limiter is in process. Scaling out needs a shared limiter.
