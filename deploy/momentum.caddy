@@ -1,0 +1,75 @@
+# Blocks for the shared Caddy (/opt/caddy/Caddyfile). Append them to the END of that file in place,
+# with the two __MOCK_*__ placeholders filled (deploy/README.md, "Shared Caddy"): the container has the
+# file mounted, an editor that replaces the file leaves Caddy on the old content.
+#
+# The shared Caddy runs in the `host` network: 127.0.0.1:18030 is `api`, 127.0.0.1:18031 is
+# `mock-helpdesk` (deploy/compose.prod.yaml). Public ports 8030/8031 are these blocks. Do not make them equal.
+#
+# This Caddy is not a trusted proxy of anyone: it replaces X-Forwarded-For sent by the client with the
+# real client address. The api trusts that header (uvicorn --proxy-headers) for its per-IP webhook rate
+# limit and its logs, so 18030 must stay loopback-only. The Host header is passed through unchanged
+# (Caddy's default): the UI's CSRF check compares Origin with Host. Do not add `header_up Host`.
+
+(momentum_common) {
+	encode zstd gzip
+
+	# Webhook bodies are small; a full 10 000-character UI form, URL-encoded Cyrillic, is about 60 KB.
+	request_body {
+		max_size 64KB
+	}
+
+	header {
+		X-Frame-Options DENY
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+(momentum_api) {
+	import momentum_common
+
+	# Caddy leaves the Authorization header out of access logs by default.
+	log {
+		output file /data/momentum_access.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+	}
+
+	reverse_proxy 127.0.0.1:18030
+}
+
+# Mock helpdesk page: replies with customer data, so behind the operator's Basic Auth.
+(momentum_mock) {
+	import momentum_common
+
+	basic_auth {
+		__MOCK_USER__ __MOCK_PASSWORD_HASH__
+	}
+
+	reverse_proxy 127.0.0.1:18031
+}
+
+# ---- Temporary: no domain yet, plain http on separate ports (ufw/provider firewall must allow 8030, 8031) ----
+# .env on the server: PUBLIC_BASE_URL=http://<server-ip>:8030
+:8030 {
+	import momentum_api
+}
+
+:8031 {
+	import momentum_mock
+}
+
+# ---- Later: the domain with automatic TLS. Replace the two blocks above with these --------------------------
+# DNS A records of your-domain.tld and helpdesk.your-domain.tld -> the server first; ports 80 and 443 open.
+# .env: PUBLIC_BASE_URL=https://your-domain.tld, then deploy/deploy.sh (settings are read at start).
+#
+# your-domain.tld {
+# 	import momentum_api
+# }
+#
+# helpdesk.your-domain.tld {
+# 	import momentum_mock
+# }
