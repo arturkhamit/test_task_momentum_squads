@@ -1,11 +1,55 @@
+# Whole stack with working defaults: `docker compose up --build` needs no .env and no API key.
+# Optional .env (see .env.example) overrides any value below.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app-env: &app-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://app:app@db:5432/app}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  OPERATOR_USER: ${OPERATOR_USER:-admin}
+  OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-admin}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-claude-haiku-5-5}
+  LLM_RPM: ${LLM_RPM:-60}
+  LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+  STUB_DELAY_MIN: ${STUB_DELAY_MIN:-5}
+  STUB_DELAY_MAX: ${STUB_DELAY_MAX:-30}
+  LLM_CONCURRENCY: ${LLM_CONCURRENCY:-20}
+  GEN_MAX_ATTEMPTS: ${GEN_MAX_ATTEMPTS:-5}
+  LEASE_SECONDS: ${LEASE_SECONDS:-300}
+  POLL_INTERVAL: ${POLL_INTERVAL:-1}
+  SHUTDOWN_GRACE: ${SHUTDOWN_GRACE:-8}
+  SEND_CONCURRENCY: ${SEND_CONCURRENCY:-5}
+  SEND_TIMEOUT: ${SEND_TIMEOUT:-10}
+  SEND_LEASE_SECONDS: ${SEND_LEASE_SECONDS:-60}
+  SEND_MAX_ATTEMPTS: ${SEND_MAX_ATTEMPTS:-10}
+  HELPDESK_ALLOWED_HOSTS: ${HELPDESK_ALLOWED_HOSTS:-helpdesk.example.com}
+  # Replies go to the mock helpdesk by default; point this at another URL to override.
+  HELPDESK_MOCK_URL: ${HELPDESK_MOCK_URL:-http://mock-helpdesk:8001}
+
+x-app: &app
+  build: .
+  image: momentum-squads:local
+  env_file:
+    - path: .env
+      required: false
+  logging: *logging
+
 services:
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: app
     ports:
+      # Host tests (`uv run pytest`) connect here. Not reachable from outside the host.
       - "127.0.0.1:55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -14,6 +58,77 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+    logging: *logging
+
+  migrate:
+    <<: *app
+    environment: *app-env
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed_kb"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    environment: *app-env
+    command:
+      - uvicorn
+      - app.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # Exactly ONE replica: the LLM rate limiter (60 req/min) lives in this process's memory,
+  # so scaling the worker out would multiply the limit. Do not use `--scale worker=N`.
+  worker:
+    <<: *app
+    environment: *app-env
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 12s  # a bit above SHUTDOWN_GRACE (8 s)
+
+  # Single process on purpose: the reply store is in memory. Never add --workers.
+  mock-helpdesk:
+    <<: *app
+    environment:
+      MOCK_FAIL_RATE: ${MOCK_FAIL_RATE:-0.2}
+      MOCK_SLOW_RATE: ${MOCK_SLOW_RATE:-0.1}
+      MOCK_SLOW_SECONDS: ${MOCK_SLOW_SECONDS:-15}
+    command:
+      - uvicorn
+      - mock_helpdesk.main:app
+      - --host=0.0.0.0
+      - --port=8001
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8001/replies', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
 volumes:
   pgdata:
