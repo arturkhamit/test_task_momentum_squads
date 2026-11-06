@@ -88,6 +88,27 @@ async def test_stale_worker_is_fenced_after_reclaim():
     assert t.status == "sending" and t.attempts == 2 and t.sent_at is None
 
 
+async def test_stale_worker_is_fenced_after_operator_retry():
+    """Retry resets attempts to 0, so the attempts fence alone matches a pre-Retry worker
+    again; the lease timestamp tells the two runs apart."""
+    ticket_id = await add_ticket(status="approved", final_message="Відповідь")
+    stale = await worker.claim("approved", "sending", settings.send_lease_seconds)
+    # The stale run's lease expires, the ticket ends send_failed, the operator presses Retry.
+    async with SessionLocal() as s, s.begin():
+        await s.execute(
+            update(Ticket)
+            .where(Ticket.id == ticket_id)
+            .values(status="approved", attempts=0, locked_until=None)
+        )
+    fresh = await worker.claim("approved", "sending", settings.send_lease_seconds)
+    assert fresh["attempts"] == stale["attempts"] == 1
+
+    await worker.finish(stale, "sending", status="approved", last_error="stale")
+
+    t = await get_ticket(ticket_id)
+    assert t.status == "sending" and t.last_error is None
+
+
 # --- generation --------------------------------------------------------------------------
 
 

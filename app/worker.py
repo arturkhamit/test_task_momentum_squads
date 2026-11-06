@@ -40,7 +40,7 @@ CLAIM_SQL = text("""
         FOR UPDATE SKIP LOCKED
         LIMIT 1
     )
-    RETURNING id, ticket_id, message, reply_url, final_message, attempts
+    RETURNING id, ticket_id, message, reply_url, final_message, attempts, locked_until
 """)
 
 
@@ -53,8 +53,9 @@ async def claim(ready: str, working: str, lease: int) -> RowMapping | None:
 
 
 async def finish(job: RowMapping, working: str, **values) -> None:
-    """Leave `working`. Matching attempts too means a job whose lease expired and was
-    reclaimed by someone else can no longer be overwritten by us."""
+    """Leave `working`, fenced by the claim: attempts and the lease timestamp must still be
+    ours, so a job whose lease expired and was reclaimed (also after an operator Retry reset
+    attempts to 0) can no longer be overwritten by us."""
     async with SessionLocal() as session, session.begin():
         await session.execute(
             update(Ticket)
@@ -62,6 +63,7 @@ async def finish(job: RowMapping, working: str, **values) -> None:
                 Ticket.id == job["id"],
                 Ticket.status == working,
                 Ticket.attempts == job["attempts"],
+                Ticket.locked_until == job["locked_until"],
             )
             .values(locked_until=None, updated_at=func.now(), **values)
         )
