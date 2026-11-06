@@ -144,8 +144,9 @@ async def cmd_wait(a) -> None:
     total = sum(counts.values())
     await conn.close()
     print(f"drain time {elapsed:.0f}s (waiting started when this command started)")
-    verdict(f"rows == {a.expect}", total == a.expect, str(total))
-    verdict(f"all {a.expect} reached {a.status}", counts[a.status] == a.expect, str(dict(counts)))
+    if not a.subset:
+        verdict(f"rows == {a.expect}", total == a.expect, str(total))
+    verdict(f"{a.expect} reached {a.status}", counts[a.status] == a.expect, str(dict(counts)))
     verdict("nothing stuck in generating/sending", stuck == 0, str(stuck))
     print(f"max DB connections seen: {max_conns}")
 
@@ -196,6 +197,7 @@ async def cmd_approve(a) -> None:
     ]
     await conn.close()
     print(f"approving {len(ids)} drafts x {a.copies} copies")
+    verdict("found drafts to approve", bool(ids), f"{len(ids)} of requested {a.count}")
     sem = asyncio.Semaphore(a.parallel)
     outcomes: Counter = Counter()
     headers = {"Origin": BASE_URL}
@@ -298,6 +300,7 @@ def main() -> None:
     s.add_argument("--prefix", required=True)
     s.add_argument("--expect", type=int, required=True)
     s.add_argument("--status", default="draft")
+    s.add_argument("--subset", action="store_true", help="prefix has more rows than --expect")
     s.add_argument("--timeout", type=float, default=1800)
     s.add_argument("--interval", type=float, default=15)
     s = sub.add_parser("dup")
