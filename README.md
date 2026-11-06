@@ -109,6 +109,9 @@ docker compose exec db psql -U app -d app -c "select status, count(*) from ticke
 ```
 
 In a test run, `--n 10 --dup 3` returned 30 x `200` with p99 about 27 ms and created 10 tickets.
+
+Runs from one machine are subject to the webhook rate limit (bursts of 200, then 10/s). For bigger
+runs start the stack with `WEBHOOK_RATE_PER_MIN=0`, e.g. `WEBHOOK_RATE_PER_MIN=0 docker compose up -d`.
 Drafts then appear at about the LLM limit (60 per minute), so a big burst drains over time; the
 UI list fills as they finish.
 
@@ -122,6 +125,8 @@ Every variable has a default that works under `docker compose up`. To change one
 | `DATABASE_URL` | `postgresql+asyncpg://app:app@db:5432/app` | SQLAlchemy async URL |
 | `PUBLIC_BASE_URL` | `http://localhost:8000` | Base for KB links in drafts (`/kb/{slug}`) |
 | `LOG_LEVEL` | `INFO` | Log level |
+| `WEBHOOK_DB_TIMEOUT` | `1.5` | Seconds the webhook waits for the DB before answering 503 (`Retry-After: 5`) |
+| `WEBHOOK_RATE_PER_MIN` / `WEBHOOK_BURST` | `600` / `200` | Webhook token bucket per client IP; `0` disables it |
 | `OPERATOR_USER` / `OPERATOR_PASSWORD` | `admin` / `admin` | Basic Auth for `/ui`. Change both in production |
 | `ANTHROPIC_API_KEY` | empty | Empty = no-key mode |
 | `LLM_MODEL` | `claude-haiku-5-5` | Model name |
@@ -152,7 +157,18 @@ Fixed in `compose.yaml`: the Postgres credentials (`app`/`app`/`app`, reachable 
 `INSERT ... ON CONFLICT (event_id) DO NOTHING`, then answers `200` only after commit, for new and
 duplicate events alike. No LLM or HTTP calls in the request, so it answers in milliseconds even
 when the LLM is slow, and an acknowledged ticket is always durable. The unique index is the whole
-deduplication, including for concurrent copies: no app-level locks.
+deduplication, including for concurrent copies: no app-level locks. If the DB does not answer
+within `WEBHOOK_DB_TIMEOUT` (1.5 s) the webhook returns `503` with `Retry-After`, so the helpdesk
+retries instead of waiting past its 2 s limit.
+
+**Rate limit.** `POST /webhooks/helpdesk` has a token bucket per client IP (600/min, bursts of 200),
+far above the expected 50/min peak, so real helpdesk traffic and its duplicate retries are never
+refused; over it the answer is `429` with `Retry-After`. It protects the database from a flood
+from one address. It does not stop slow spam under the limit, but every ticket still costs at
+most one paced LLM request (the 60/min limiter caps spend). The buckets live in the api process's
+memory (one process; bounded to 10 000 IPs) and key on the client IP, which behind the proxy comes
+from `X-Forwarded-For` via uvicorn's `--proxy-headers`, so the api port must only be reachable
+through the proxy.
 
 **Postgres as the queue.** The insert is the enqueue, and it is atomic with the ticket itself, so
 there is no "saved but not queued" window and nothing to lose in a broker. The worker claims rows

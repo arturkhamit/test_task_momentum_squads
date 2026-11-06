@@ -19,7 +19,7 @@ from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import make_url, text  # noqa: E402
 
-from app import llm, sender  # noqa: E402
+from app import llm, sender, webhook  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -75,6 +75,14 @@ def limiter(monkeypatch):
     fast = CountingLimiter(rpm=600_000)
     monkeypatch.setattr(llm, "limiter", fast)
     return fast
+
+
+@pytest.fixture(autouse=True)
+def webhook_limiter(monkeypatch):
+    """A fresh webhook rate limiter per test, so buckets do not carry over between tests."""
+    fresh = webhook.RateLimiter(settings.webhook_rate_per_min, settings.webhook_burst)
+    monkeypatch.setattr(webhook, "limiter", fresh)
+    return fresh
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-from pydantic import PositiveFloat, PositiveInt
+from pydantic import NonNegativeInt, PositiveFloat, PositiveInt
 from pydantic_settings import BaseSettings
 
 
@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     log_level: str = "INFO"
     webhook_db_timeout: PositiveFloat = 1.5  # seconds; then 503 so the helpdesk retries
+    # Per client IP token bucket on the webhook; 0 in either disables it. Far above the
+    # expected peak (50/min) so real helpdesk traffic, retries included, is never refused.
+    webhook_rate_per_min: NonNegativeInt = 600
+    webhook_burst: NonNegativeInt = 200
 
     # Operator UI (HTTP Basic Auth). Change both in production.
     operator_user: str = "admin"
