@@ -210,3 +210,4 @@ async def test_cancelled_send_is_handed_back(monkeypatch):
     await asyncio.gather(task, return_exceptions=True)
     t = await get_ticket(ticket_id)
     assert t.status == "approved" and t.locked_until is None
+    assert t.attempts == 0  # the interrupted attempt is given back

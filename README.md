@@ -129,7 +129,7 @@ Every variable has a default that works under `docker compose up`. To change one
 | `LLM_TIMEOUT` | `60` | Seconds per LLM request |
 | `STUB_DELAY_MIN` / `STUB_DELAY_MAX` | `5` / `30` | No-key mode delay range, seconds |
 | `LLM_CONCURRENCY` | `20` | Tickets generated in parallel |
-| `GEN_MAX_ATTEMPTS` | `5` | Generation attempts before `generation_failed` |
+| `GEN_MAX_ATTEMPTS` | `8` | Generation attempts before `generation_failed` (about 20 min of retries) |
 | `LEASE_SECONDS` | `300` | Generation lease; a crashed worker's job is retaken after it |
 | `POLL_INTERVAL` | `1` | Queue poll interval, seconds |
 | `SHUTDOWN_GRACE` | `8` | Seconds the worker waits for running jobs on SIGTERM (compose stop grace is 12 s) |
@@ -165,7 +165,8 @@ parts without helping.
 goes through a limiter that spaces request starts at least 1 s apart, so no 60-second window
 holds more than 60. About 20 tickets are in flight at once (5-30
 s latency at 50 tickets/min needs roughly 15). Retries (429, 5xx, timeout) use exponential backoff
-with jitter, at most 5 attempts, then `generation_failed`; the SDK's own retries are off so nothing
+with jitter (10 s doubling up to 600 s), at most 8 attempts over about 20 minutes, then
+`generation_failed`; the SDK's own retries are off so nothing
 bypasses the limiter. The limiter is in process memory, so **exactly one worker replica** is
 supported. The upgrade path is moving the bucket into Postgres.
 

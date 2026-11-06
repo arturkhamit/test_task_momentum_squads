@@ -185,6 +185,7 @@ async def test_cancelled_job_is_handed_back(monkeypatch):
     await asyncio.gather(task, return_exceptions=True)
     t = await get_ticket(ticket_id)
     assert t.status == "new" and t.locked_until is None and t.next_attempt_at <= ago(0)
+    assert t.attempts == 0  # the interrupted attempt is given back
 
 
 async def test_pool_loop_stops_promptly():

@@ -82,9 +82,15 @@ async def generate(job: RowMapping) -> None:
         articles = await kb.search(job["message"])
         draft = await llm.draft_reply(ticket_id, job["message"], articles)
     except asyncio.CancelledError:
-        # Shutdown: hand the ticket back now instead of after the lease expires.
+        # Shutdown: hand the ticket back now instead of after the lease expires, and give the
+        # attempt back so deploys do not use up a ticket's attempts.
         await finish(
-            job, "generating", status="new", next_attempt_at=func.now(), last_error="worker stopped"
+            job,
+            "generating",
+            status="new",
+            attempts=Ticket.attempts - 1,
+            next_attempt_at=func.now(),
+            last_error="worker stopped",
         )
         raise
     except Exception as e:
@@ -135,12 +141,13 @@ async def send(job: RowMapping) -> None:
         # The same key on every attempt lets the helpdesk drop repeats of a reply it stored.
         await sender.post_reply(url, ticket_id, job["ticket_id"], job["final_message"])
     except asyncio.CancelledError:
-        # Shutdown: hand the ticket back now. The POST may already have landed; re-sending
-        # is safe because it carries the same Idempotency-Key.
+        # Shutdown: hand the ticket back now and give the attempt back. The POST may already
+        # have landed; re-sending is safe because it carries the same Idempotency-Key.
         await finish(
             job,
             "sending",
             status="approved",
+            attempts=Ticket.attempts - 1,
             next_attempt_at=func.now(),
             last_error="worker stopped",
         )

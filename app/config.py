@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     # Generation worker.
     llm_concurrency: PositiveInt = 20
-    gen_max_attempts: PositiveInt = 5
+    # With GEN_BACKOFF (10 s doubling, 600 s cap) 8 attempts span about 20 minutes.
+    gen_max_attempts: PositiveInt = 8
     # Must exceed the worst case of one job: limiter wait (up to llm_concurrency * 60 / llm_rpm
     # = 20 s) + llm_timeout (60 s) + stub delay (30 s), with a wide margin for DB hiccups.
     lease_seconds: PositiveInt = 300
