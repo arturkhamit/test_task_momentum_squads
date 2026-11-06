@@ -275,4 +275,64 @@ wait, automatic rollback), `deploy/rollback.sh`, `deploy/backup.sh` and the Cadd
 
 ## How this was built
 
-TODO(orchestrator)
+This repository was built AI-first with Claude Code. One Claude session acted as the
+orchestrator. It wrote the spec, delegated all application code to subagents, and checked every
+step itself before moving on. The owner made the product decisions and approved the plan.
+
+**What the agents worked from**
+
+- `SPEC.md`: requirements R1–R14 written as checkable criteria, the architecture, the delivery
+  plan, and every owner decision with its date. It was written before any code.
+- `CLAUDE.md`: the stack, the commands, and the invariants no agent may break. Examples: the
+  webhook only inserts; every LLM request goes through the limiter; status changes are
+  conditional updates; every reply carries the same `Idempotency-Key`.
+- `.claude/agents/`: the subagents. `.claude/skills/`: engineering skills they can follow.
+  `.claude/settings.json`: the commands the agents may and may not run.
+
+**Steps.** The commit history follows them and nothing is squashed.
+
+| Step | Agent | Result |
+|---|---|---|
+| 0 | orchestrator | `SPEC.md`, `CLAUDE.md` |
+| 1–3 | backend-fixer (one agent, three passes) | skeleton, webhook and KB search; worker, LLM client and limiter; UI, sending and the mock helpdesk |
+| 4 | dockerizer | Dockerfile, compose, this README |
+| 5 | qa-tester | static checks, coverage, stress and failure scenarios S1–S6 |
+| 6 | backend-auditor | fresh-eye review: no P0, 5 P1, 5 P2 |
+| 6a | backend-fixer | fix round F1–F9 from QA and the audit |
+| 7 | deploy-engineer | production compose override, Caddy, deploy/rollback/backup scripts, Makefile |
+| 8 | qa-tester | final check of the deploy path |
+
+**What QA measured** on the compose stack, in no-key mode:
+
+- 500 webhooks plus a burst of 100: p99 8 ms, every ticket reached `draft`, none stuck.
+- 20 concurrent copies of one event: one row.
+- 120 approvals sent to a helpdesk that fails 30% of requests and loses 10% of responses:
+  120 replies stored, 0 duplicates.
+- `kill -9` of the worker mid-generation and mid-send: every ticket finished, 0 duplicates.
+- LLM requests: at most 60 in any 60-second window.
+
+**How the orchestrator checked the agents.** After each step it re-ran ruff and pytest itself,
+read the key code and the diff, and tried decisions out on the dev database before handing them
+on. Some things this changed:
+
+- **KB search.** The first version compared the whole message and found nothing for natural,
+  wordy tickets. A probe on the dev database showed that per-word matching weighted by IDF fixed
+  it. A later probe added the title boost after "Як змінити пароль?" tied across five articles.
+- **LLM client.** Before that pass, the SDK details were checked against Anthropic's
+  documentation, so the agent did not guess them: Haiku 5.5 rejects sampling parameters, and the
+  SDK is built on `httpx2`.
+- **A flaky test.** One test failed about one run in five. It was traced to a mock server leaking
+  between tests, not retried until it went green.
+- **The audit.** It found that `HELPDESK_MOCK_URL` could not be turned off (`:-` in compose) and
+  that the generation retry window was only about 2.5 minutes. Both were fixed and tested.
+
+**Honest notes**
+
+- **The real-key LLM path has never run against the live API,** because there is no funded
+  account yet. It is tested against the official SDK with a stubbed transport. Production runs in
+  no-key mode until a key is set.
+- **The `.env` deny rule is not a security boundary.** `.claude/settings.json` denies reading
+  `.env`, but it also allows `python`, `uv` and `docker compose`, which can read it. The rule
+  guards against accidents.
+- **Who wrote what.** Agents wrote the code and tests. The orchestrator wrote `SPEC.md`,
+  `CLAUDE.md`, this section and a few documentation fixes.
