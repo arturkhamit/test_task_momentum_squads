@@ -8,6 +8,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import webhook
 from app.db import engine, get_session
 
 
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Support drafts", lifespan=lifespan)
+app.include_router(webhook.router)
 
 
 @app.get("/health", response_class=PlainTextResponse)
