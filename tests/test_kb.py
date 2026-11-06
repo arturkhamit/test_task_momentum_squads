@@ -16,6 +16,7 @@ from app.kb import MIN_RATIO, MIN_TOP_SCORE, article_url, search
         ("Скільки коштує тариф для команди?", "billing"),
         ("Як дати колезі доступ до дашборду, щоб він тільки переглядав?", "roles-permissions"),
         ("Забув пароль і не можу увійти в акаунт", "password-reset"),
+        ("Як змінити пароль?", "password-reset"),
         ("Як вивантажити таблицю в Excel?", "export-excel-csv"),
         ("Де взяти API токен?", "api-tokens"),
         ("Не приходить щотижнева розсилка звіту на пошту", "scheduled-reports"),
@@ -35,6 +36,19 @@ async def test_search_top_article(message, top):
     assert (results[0]["slug"] if results else None) == top
 
 
+@pytest.mark.parametrize(
+    ("message", "slugs"),
+    [
+        # Runners-up at exactly half the top score are dropped (title boost doubles the top).
+        ("Як змінити пароль?", ["password-reset"]),
+        ("Скільки коштує тариф для команди?", ["billing"]),
+        ("Не можу експортувати звіт у PDF", ["export-pdf"]),
+    ],
+)
+async def test_search_drops_weak_runners_up(message, slugs):
+    assert [r["slug"] for r in await search(message)] == slugs
+
+
 async def test_search_result_shape():
     results = await search("Не можу експортувати звіт у PDF")
     assert results[0]["url"] == article_url("export-pdf")
@@ -47,7 +61,7 @@ async def test_results_are_capped_sorted_and_close_to_top():
     assert 1 <= len(results) <= 3
     assert scores == sorted(scores, reverse=True)
     assert scores[0] >= MIN_TOP_SCORE
-    assert all(s >= MIN_RATIO * scores[0] for s in scores)
+    assert all(s > MIN_RATIO * scores[0] for s in scores[1:])
 
 
 async def test_article_page(client):

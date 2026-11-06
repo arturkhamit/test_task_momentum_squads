@@ -14,11 +14,12 @@ from app.models import KbArticle
 router = APIRouter()
 
 # Ranking: every distinct ticket word (>= 3 chars, not a stop word) that fuzzy-matches an
-# article adds strict_word_similarity * IDF, so words found in few articles weigh more.
+# article adds strict_word_similarity * IDF, so words found in few articles weigh more;
+# the contribution doubles when the word is also in the article title.
 # Thresholds are tuned in tests/test_kb.py.
 WORD_SIMILARITY = 0.5  # per-word match threshold for `<<%`
 MIN_TOP_SCORE = 2.0  # below this the best article is a coincidence: return nothing
-MIN_RATIO = 0.5  # keep runners-up only if score >= MIN_RATIO * top score
+MIN_RATIO = 0.5  # keep runners-up only if score > MIN_RATIO * top score
 
 # Greetings, politeness and filler that are common in tickets but say nothing about the topic.
 STOP_WORDS = frozenset(
@@ -33,13 +34,15 @@ STOP_WORDS = frozenset(
 # `<<%` can use kb_articles_trgm_idx; the expression must match the index: title || ' ' || body.
 SEARCH_SQL = text("""
     WITH m AS (
-        SELECT a.slug, w.w, strict_word_similarity(w.w, a.title || ' ' || a.body) AS s
+        SELECT a.slug, w.w, strict_word_similarity(w.w, a.title || ' ' || a.body) AS s,
+               strict_word_similarity(w.w, a.title) >= :word_similarity AS in_title
         FROM unnest(CAST(:words AS text[])) AS w(w), kb_articles a
         WHERE w.w <<% (a.title || ' ' || a.body)
     ),
     df AS (SELECT w, count(*) AS df FROM m GROUP BY w),
     n AS (SELECT count(*) AS n FROM kb_articles)
-    SELECT a.slug, a.title, a.body, sum(m.s * ln((n.n + 1.0) / df.df))::float AS score
+    SELECT a.slug, a.title, a.body,
+           sum(m.s * ln((n.n + 1.0) / df.df) * (1 + m.in_title::int))::float AS score
     FROM m JOIN df USING (w) JOIN kb_articles a USING (slug) CROSS JOIN n
     GROUP BY a.slug
     ORDER BY score DESC, a.slug
@@ -63,11 +66,16 @@ async def search(message: str, limit: int = 3) -> list[dict]:
             text("SELECT set_config('pg_trgm.strict_word_similarity_threshold', :t, true)"),
             {"t": str(WORD_SIMILARITY)},
         )
-        rows = (await session.execute(SEARCH_SQL, {"words": words, "limit": limit})).mappings()
+        rows = (
+            await session.execute(
+                SEARCH_SQL,
+                {"words": words, "limit": limit, "word_similarity": WORD_SIMILARITY},
+            )
+        ).mappings()
         rows = [dict(row, url=article_url(row["slug"])) for row in rows]
     if not rows or rows[0]["score"] < MIN_TOP_SCORE:
         return []
-    return [r for r in rows if r["score"] >= MIN_RATIO * rows[0]["score"]]
+    return [r for r in rows if r["score"] > MIN_RATIO * rows[0]["score"]]
 
 
 @router.get("/kb/{slug}", response_class=HTMLResponse)
