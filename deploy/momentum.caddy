@@ -10,6 +10,16 @@
 # limit and its logs, so 18030 must stay loopback-only. The Host header is passed through unchanged
 # (Caddy's default): the UI's CSRF check compares Origin with Host. Do not add `header_up Host`.
 
+(momentum_headers) {
+	header {
+		X-Frame-Options DENY
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
 (momentum_common) {
 	encode zstd gzip
 
@@ -18,12 +28,11 @@
 		max_size 64KB
 	}
 
-	header {
-		X-Frame-Options DENY
-		Content-Security-Policy "frame-ancestors 'none'"
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		-Server
+	import momentum_headers
+
+	# Caddy's own error answers (basic_auth 401, 413, 502) skip the `header` above; this covers them.
+	handle_errors {
+		import momentum_headers
 	}
 }
 
