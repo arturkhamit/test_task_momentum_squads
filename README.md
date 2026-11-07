@@ -21,6 +21,33 @@ operator UI /ui (Basic Auth): edit, approve / reject <----+
 Services (one image for all but Postgres): `db`, `migrate` (one-shot: schema + KB seed), `api`,
 `worker`, `mock-helpdesk`.
 
+## Live demo
+
+| What | URL |
+|---|---|
+| Operator UI | https://helpdesk-arturkhamit.online/ui |
+| Webhook | `POST https://helpdesk-arturkhamit.online/webhooks/helpdesk` |
+| Mock helpdesk (replies "delivered" to customers) | https://mock.helpdesk-arturkhamit.online |
+| Health | https://helpdesk-arturkhamit.online/health |
+
+- **Login.** The UI and the mock page use HTTP Basic Auth (the browser shows a login prompt). The
+  credentials come with the submission; they are not in this repository.
+- **No-key mode.** The demo runs without an Anthropic key, so drafts are the static no-key answer
+  with real KB links and arrive 5-30 s after the webhook (see [Real LLM](#real-llm)).
+- **The mock page is in memory,** so every deploy empties it. Tickets are kept in Postgres.
+
+To try it, send a ticket (use a new `event_id` each time; a repeated one is treated as a duplicate):
+
+```bash
+curl -X POST https://helpdesk-arturkhamit.online/webhooks/helpdesk \
+  -H 'Content-Type: application/json' \
+  -d '{"event_id": "evt_try_1", "ticket_id": "T-1", "customer_email": "me@example.com",
+       "message": "Не можу експортувати звіт у PDF",
+       "reply_url": "https://helpdesk.example.com/tickets/T-1/replies"}'
+```
+
+Then reload the UI. When the draft appears, approve it, and the reply shows up on the mock page.
+
 ## Quick start
 
 Requires Docker with Compose v2.24+ (for the optional `.env`). Nothing else.

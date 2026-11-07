@@ -178,6 +178,28 @@ optional (`crontab -e`):
 
 The dumps hold customer messages: copy them off the server if you need them to survive a lost disk.
 
+## Operator login
+
+The UI and the mock page share one login, kept only in the server's `.env`. To look it up, from the laptop:
+
+```
+ssh $DEPLOY_HOST 'grep -E "^OPERATOR_(USER|PASSWORD)=" <deploy-dir>/.env'
+```
+
+Change it (for example, after it leaked) without printing the new one:
+
+```
+cd "$DEPLOY_DIR"
+NEW=$(openssl rand -hex 16)
+sed -i "s/^OPERATOR_PASSWORD=.*/OPERATOR_PASSWORD=$NEW/" .env                  # the UI reads it at start
+COMPOSE_FILE=compose.yaml:deploy/compose.prod.yaml TAG=$(cat .last_good_tag) docker compose up -d --no-deps --wait api
+HASH=$(printf '%s\n%s\n' "$NEW" "$NEW" | docker exec -i caddy caddy hash-password); unset NEW
+```
+
+Then **[sudo]** replace the old hash on the mock block's `basic_auth` line of `/opt/caddy/Caddyfile` with
+`$HASH`. Edit in place, as in "Shared Caddy" (for example with `python3` `open(path, "r+")`; not `sed -i`,
+which replaces the file). Validate and reload. The old password stops working on both sites.
+
 ## Logs
 
 ```
