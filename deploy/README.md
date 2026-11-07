@@ -86,7 +86,9 @@ cd "$DEPLOY_DIR"
 ls -l /opt/caddy/Caddyfile                                    # owned by root: the lines below use sudo
 sudo cp /opt/caddy/Caddyfile /root/Caddyfile.bak-$(date +%F)
 MOCK_USER=$(grep -E '^OPERATOR_USER=' .env | cut -d= -f2-)
-MOCK_HASH=$(grep -E '^OPERATOR_PASSWORD=' .env | cut -d= -f2- | tr -d '\n' | sudo docker exec -i caddy caddy hash-password)
+MOCK_PW=$(grep -E '^OPERATOR_PASSWORD=' .env | cut -d= -f2-)
+# hash-password reads the password and its confirmation as lines; without newlines it fails with "EOF"
+MOCK_HASH=$(printf '%s\n%s\n' "$MOCK_PW" "$MOCK_PW" | sudo docker exec -i caddy caddy hash-password); unset MOCK_PW
 sed -e "s|__MOCK_USER__|$MOCK_USER|" -e "s|__MOCK_PASSWORD_HASH__|$MOCK_HASH|" deploy/momentum.caddy \
   | sudo tee -a /opt/caddy/Caddyfile > /dev/null             # at the end, nothing else
 unset MOCK_USER MOCK_HASH
